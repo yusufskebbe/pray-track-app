@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "pray-track-app",
+    "name": "Namaz Takip",
     "slug": "pray-track-app",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -9,9 +9,13 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yusufkebbe.praytrack",
+      "buildNumber": "1"
     },
     "android": {
+      "package": "com.yusufkebbe.praytrack",
+      "versionCode": 2,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -38,11 +42,18 @@
             "backgroundColor": "#000000"
           }
         }
-      ]
+      ],
+      "expo-sqlite"
     ],
     "experiments": {
-      "typedRoutes": true,
-      "reactCompiler": true
-    }
+      "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "7bc4d69d-7c0c-4aa0-b6ff-28be21f6cd90"
+      }
+    },
+    "owner": "yusufskebbe"
   }
 }
