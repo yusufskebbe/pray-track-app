@@ -146,5 +146,3 @@ This project is private and not licensed for public distribution.
 Yusuf Kebbe - [@yusufskebbe](https://github.com/yusufskebbe)
 
 ---
-
-Made with love for the Muslim community
