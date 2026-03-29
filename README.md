@@ -21,7 +21,7 @@ A mobile application for Muslims to track and manage their missed prayers (Kaza 
 
 | Turkish Name | English Name |
 | ------------ | ------------ |
-| İmsak        | Fajr         |
+| Sabah        | Fajr         |
 | Öğle         | Dhuhr        |
 | İkindi       | Asr          |
 | Akşam        | Maghrib      |

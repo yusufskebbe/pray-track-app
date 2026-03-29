@@ -24,7 +24,7 @@ export interface PrayerData {
 
 /** DB/internal key = English; name = Turkish for UI */
 export const PRAYER_TYPE_MAP: Record<PrayerType, { name: string; icon: string; iconBg: string; iconColor: string }> = {
-  fajr: { name: 'İmsak', icon: 'sunny-outline', iconBg: '#fed7aa', iconColor: '#fb923c' },
+  fajr: { name: 'Sabah', icon: 'sunny-outline', iconBg: '#fed7aa', iconColor: '#fb923c' },
   dhuhr: { name: 'Öğle', icon: 'sunny-outline', iconBg: '#fef3c7', iconColor: '#f59e0b' },
   asr: { name: 'İkindi', icon: 'sunny-outline', iconBg: '#dbeafe', iconColor: '#3b82f6' },
   maghrib: { name: 'Akşam', icon: 'sunny-outline', iconBg: '#e9d5ff', iconColor: '#a855f7' },
@@ -32,7 +32,7 @@ export const PRAYER_TYPE_MAP: Record<PrayerType, { name: string; icon: string; i
 };
 
 export const PRAYER_TYPE_OPTIONS: { value: PrayerType; label: string }[] = [
-  { value: 'fajr', label: 'İmsak' },
+  { value: 'fajr', label: 'Sabah' },
   { value: 'dhuhr', label: 'Öğle' },
   { value: 'asr', label: 'İkindi' },
   { value: 'maghrib', label: 'Akşam' },

@@ -100,6 +100,148 @@ export const addMissedPrayer = async (
   }
 };
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const MAX_RANGE_INCLUSIVE_DAYS = 30;
+
+function parseIsoDateLocal(iso: string): Date {
+  const [y, m, d] = iso.split('-').map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatIsoLocal(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, '0');
+  const d = String(date.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
+}
+
+function inclusiveDayCount(start: Date, end: Date): number {
+  const s = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const e = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  return Math.round((e.getTime() - s.getTime()) / 86400000) + 1;
+}
+
+/** Inserts one row per calendar day from start through end (inclusive). Max 30 inclusive days. */
+export const addMissedPrayersForDateRange = async (
+  prayerType: PrayerType,
+  startDate: string,
+  endDate: string
+): Promise<number> => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  if (!ISO_DATE_RE.test(startDate) || !ISO_DATE_RE.test(endDate)) {
+    throw new Error('Invalid date format. Expected YYYY-MM-DD');
+  }
+
+  let start = parseIsoDateLocal(startDate);
+  let end = parseIsoDateLocal(endDate);
+  if (start > end) {
+    throw new Error('INVALID_RANGE_ORDER');
+  }
+
+  const days = inclusiveDayCount(start, end);
+  if (days > MAX_RANGE_INCLUSIVE_DAYS) {
+    throw new Error('RANGE_TOO_LONG');
+  }
+
+  const dateStrings: string[] = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endNorm = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  while (cursor <= endNorm) {
+    dateStrings.push(formatIsoLocal(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  let inserted = 0;
+  await db.withTransactionAsync(async () => {
+    for (const dateStr of dateStrings) {
+      await db!.runAsync(
+        'INSERT INTO missed_prayers (prayer_type, date, created_at) VALUES (?, ?, datetime("now"))',
+        [prayerType, dateStr]
+      );
+      inserted += 1;
+    }
+  });
+
+  return inserted;
+};
+
+/** Inserts one missed row per prayer type (all five) for a single calendar day. */
+export const addAllDailyMissedPrayersForDate = async (
+  date: string
+): Promise<number> => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  if (!ISO_DATE_RE.test(date)) {
+    throw new Error('Invalid date format. Expected YYYY-MM-DD');
+  }
+
+  let inserted = 0;
+  await db.withTransactionAsync(async () => {
+    for (const prayerType of PRAYER_TYPES) {
+      await db!.runAsync(
+        'INSERT INTO missed_prayers (prayer_type, date, created_at) VALUES (?, ?, datetime("now"))',
+        [prayerType, date]
+      );
+      inserted += 1;
+    }
+  });
+
+  return inserted;
+};
+
+/** For each day in range (inclusive), inserts all five prayer types. Max 30 inclusive days. */
+export const addAllDailyMissedPrayersForDateRange = async (
+  startDate: string,
+  endDate: string
+): Promise<number> => {
+  if (!db) {
+    throw new Error('Database not initialized');
+  }
+
+  if (!ISO_DATE_RE.test(startDate) || !ISO_DATE_RE.test(endDate)) {
+    throw new Error('Invalid date format. Expected YYYY-MM-DD');
+  }
+
+  let start = parseIsoDateLocal(startDate);
+  let end = parseIsoDateLocal(endDate);
+  if (start > end) {
+    throw new Error('INVALID_RANGE_ORDER');
+  }
+
+  const days = inclusiveDayCount(start, end);
+  if (days > MAX_RANGE_INCLUSIVE_DAYS) {
+    throw new Error('RANGE_TOO_LONG');
+  }
+
+  const dateStrings: string[] = [];
+  const cursor = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  const endNorm = new Date(end.getFullYear(), end.getMonth(), end.getDate());
+  while (cursor <= endNorm) {
+    dateStrings.push(formatIsoLocal(cursor));
+    cursor.setDate(cursor.getDate() + 1);
+  }
+
+  let inserted = 0;
+  await db.withTransactionAsync(async () => {
+    for (const dateStr of dateStrings) {
+      for (const prayerType of PRAYER_TYPES) {
+        await db!.runAsync(
+          'INSERT INTO missed_prayers (prayer_type, date, created_at) VALUES (?, ?, datetime("now"))',
+          [prayerType, dateStr]
+        );
+        inserted += 1;
+      }
+    }
+  });
+
+  return inserted;
+};
+
 
 export const getAllMissedPrayers = async (): Promise<PrayerData[]> => {
   if (!db) return [];

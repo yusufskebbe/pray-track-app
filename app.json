@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Namaz Takip",
+    "name": "Namaz Takibi",
     "slug": "pray-track-app",
-    "version": "1.0.0",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "praytrackapp",
@@ -11,11 +11,14 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yusufkebbe.praytrack",
-      "buildNumber": "1"
+      "buildNumber": "4",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "package": "com.yusufkebbe.praytrack",
-      "versionCode": 2,
+      "versionCode": 11,
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
@@ -43,7 +46,15 @@
           }
         }
       ],
-      "expo-sqlite"
+      "expo-sqlite",
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/favicon.png",
+          "color": "#10b981",
+          "defaultChannel": "daily-reminder"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

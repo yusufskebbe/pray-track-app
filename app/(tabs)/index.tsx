@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useRouter } from "expo-router";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Alert,
   ImageBackground,
@@ -18,8 +18,15 @@ import { env } from "../../config/env";
 import { useAddPrayer } from "../../contexts/add-prayer-context";
 import { useCity } from "../../contexts/city-context";
 import { useTheme } from "../../contexts/theme-context";
-import { addMissedPrayer } from "../../services/database.service";
+import {
+  addAllDailyMissedPrayersForDate,
+  addAllDailyMissedPrayersForDateRange,
+  addMissedPrayer,
+  addMissedPrayersForDateRange,
+} from "../../services/database.service";
 import { PRAYER_TYPE_OPTIONS, PrayerType } from "../../types/prayer.types";
+
+type ActiveDatePicker = "single" | "start" | "end" | null;
 
 export default function HomeTabScreen() {
   const router = useRouter();
@@ -30,8 +37,13 @@ export default function HomeTabScreen() {
   const [isPrayerTypePickerVisible, setIsPrayerTypePickerVisible] =
     useState(false);
   const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [activeDatePicker, setActiveDatePicker] =
+    useState<ActiveDatePicker>(null);
+  const [isRangeEnabled, setIsRangeEnabled] = useState(false);
+  const [rangeStartDate, setRangeStartDate] = useState<Date>(() => new Date());
+  const [rangeEndDate, setRangeEndDate] = useState<Date>(() => new Date());
   const [isSaving, setIsSaving] = useState(false);
+  const [missedWholeDay, setMissedWholeDay] = useState(false);
 
   const currentDate = new Date();
   const dayName = currentDate.toLocaleDateString("tr-TR", { weekday: "long" });
@@ -75,6 +87,7 @@ export default function HomeTabScreen() {
         const data = await response.json();
 
         const prayerIcons: Record<string, string> = {
+          Sabah: "sunny-outline",
           İmsak: "sunny-outline",
           Öğle: "sunny-outline",
           İkindi: "sunny-outline",
@@ -82,12 +95,15 @@ export default function HomeTabScreen() {
           Yatsı: "moon-outline",
         };
 
+        const vakitDisplayName = (vakit: string) =>
+          vakit === "İmsak" ? "Sabah" : vakit;
+
         if (data?.result && Array.isArray(data.result)) {
           const mappedPrayers = data.result
             .filter((p: { vakit: string }) => prayerIcons[p.vakit])
             .map((prayer: { vakit: string; saat: string }, index: number) => ({
               id: index + 1,
-              name: prayer.vakit,
+              name: vakitDisplayName(prayer.vakit),
               time: prayer.saat,
               icon: prayerIcons[prayer.vakit],
             }));
@@ -102,6 +118,42 @@ export default function HomeTabScreen() {
 
     fetchPrayerTimes();
   }, [cityName]);
+
+  useEffect(() => {
+    if (!isAddModalVisible) {
+      setIsRangeEnabled(false);
+      setRangeStartDate(new Date());
+      setRangeEndDate(new Date());
+      setActiveDatePicker(null);
+      setSelectedDate(new Date());
+      setMissedWholeDay(false);
+      setSelectPrayType("");
+      setIsPrayerTypePickerVisible(false);
+    }
+  }, [isAddModalVisible]);
+
+  const rangeValidationMessage = useMemo(() => {
+    if (!isRangeEnabled) return null;
+    const sNorm = new Date(
+      rangeStartDate.getFullYear(),
+      rangeStartDate.getMonth(),
+      rangeStartDate.getDate()
+    );
+    const eNorm = new Date(
+      rangeEndDate.getFullYear(),
+      rangeEndDate.getMonth(),
+      rangeEndDate.getDate()
+    );
+    if (sNorm > eNorm) {
+      return "Bitiş tarihi başlangıçtan önce olamaz.";
+    }
+    const count =
+      Math.round((eNorm.getTime() - sNorm.getTime()) / 86400000) + 1;
+    if (count > 30) {
+      return "En fazla 30 gün girebilirsiniz";
+    }
+    return null;
+  }, [isRangeEnabled, rangeStartDate, rangeEndDate]);
 
   const formatDateForDB = (date: Date): string => {
     const y = date.getFullYear();
@@ -119,36 +171,136 @@ export default function HomeTabScreen() {
   };
 
   const handleDateChange = (_event: unknown, date?: Date) => {
-    if (Platform.OS === "android") setShowDatePicker(false);
-    if (date) setSelectedDate(date);
+    if (Platform.OS === "android") setActiveDatePicker(null);
+    if (!date) return;
+    if (activeDatePicker === "single") setSelectedDate(date);
+    else if (activeDatePicker === "start") setRangeStartDate(date);
+    else if (activeDatePicker === "end") setRangeEndDate(date);
+  };
+
+  const handleToggleRange = () => {
+    if (!isRangeEnabled) {
+      setRangeStartDate(selectedDate);
+      setRangeEndDate(selectedDate);
+      setActiveDatePicker(null);
+      setIsRangeEnabled(true);
+    } else {
+      setIsRangeEnabled(false);
+      setActiveDatePicker(null);
+    }
   };
 
   const handleAddPrayer = async () => {
-    if (!selectPrayType) {
+    if (!missedWholeDay && !selectPrayType) {
       Alert.alert("Hata", "Lütfen namaz tipi seçin.");
       return;
     }
 
+    if (isRangeEnabled) {
+      if (rangeValidationMessage) {
+        Alert.alert("Hata", rangeValidationMessage);
+        return;
+      }
+    }
+
     setIsSaving(true);
     try {
-      const formattedDate = formatDateForDB(selectedDate);
-      await addMissedPrayer(selectPrayType, formattedDate);
+      if (missedWholeDay) {
+        if (isRangeEnabled) {
+          const startIso = formatDateForDB(rangeStartDate);
+          const endIso = formatDateForDB(rangeEndDate);
+          const inserted = await addAllDailyMissedPrayersForDateRange(
+            startIso,
+            endIso
+          );
+          const dayCount = inserted / PRAYER_TYPE_OPTIONS.length;
+          Alert.alert(
+            "Başarılı",
+            `${dayCount} gün için tüm vakitler (Sabah, Öğle, İkindi, Akşam, Yatsı) kazaya eklendi.`,
+            [
+              {
+                text: "Tamam",
+                onPress: () => {
+                  closeAddModal();
+                  setSelectPrayType("");
+                  setSelectedDate(new Date());
+                },
+              },
+            ]
+          );
+        } else {
+          const formattedDate = formatDateForDB(selectedDate);
+          await addAllDailyMissedPrayersForDate(formattedDate);
+          Alert.alert(
+            "Başarılı",
+            "Sabah, Öğle, İkindi, Akşam ve Yatsı için kaza kaydı eklendi.",
+            [
+              {
+                text: "Tamam",
+                onPress: () => {
+                  closeAddModal();
+                  setSelectPrayType("");
+                  setSelectedDate(new Date());
+                },
+              },
+            ]
+          );
+        }
+      } else {
+        if (selectPrayType === "") {
+          return;
+        }
+        const prayerType = selectPrayType;
+        if (isRangeEnabled) {
+          const startIso = formatDateForDB(rangeStartDate);
+          const endIso = formatDateForDB(rangeEndDate);
+          const count = await addMissedPrayersForDateRange(
+            prayerType,
+            startIso,
+            endIso
+          );
+          Alert.alert(
+            "Başarılı",
+            `${count} gün için kaza namazı başarıyla eklendi.`,
+            [
+              {
+                text: "Tamam",
+                onPress: () => {
+                  closeAddModal();
+                  setSelectPrayType("");
+                  setSelectedDate(new Date());
+                },
+              },
+            ]
+          );
+        } else {
+          const formattedDate = formatDateForDB(selectedDate);
+          await addMissedPrayer(prayerType, formattedDate);
 
-      Alert.alert("Başarılı", "Kaza namazı başarıyla eklendi.", [
-        {
-          text: "Tamam",
-          onPress: () => {
-            closeAddModal();
-            setSelectPrayType("");
-            setSelectedDate(new Date());
-          },
-        },
-      ]);
-    } catch {
-      Alert.alert(
-        "Hata",
-        "Kaza namazı eklenirken bir hata oluştu. Lütfen tekrar deneyin."
-      );
+          Alert.alert("Başarılı", "Kaza namazı başarıyla eklendi.", [
+            {
+              text: "Tamam",
+              onPress: () => {
+                closeAddModal();
+                setSelectPrayType("");
+                setSelectedDate(new Date());
+              },
+            },
+          ]);
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "";
+      if (msg === "RANGE_TOO_LONG") {
+        Alert.alert("Hata", "En fazla 30 gün girebilirsiniz");
+      } else if (msg === "INVALID_RANGE_ORDER") {
+        Alert.alert("Hata", "Bitiş tarihi başlangıçtan önce olamaz.");
+      } else {
+        Alert.alert(
+          "Hata",
+          "Kaza namazı eklenirken bir hata oluştu. Lütfen tekrar deneyin."
+        );
+      }
     } finally {
       setIsSaving(false);
     }
@@ -157,6 +309,16 @@ export default function HomeTabScreen() {
   const handleSelectPrayerType = (type: PrayerType) => {
     setSelectPrayType(type);
     setIsPrayerTypePickerVisible(false);
+  };
+
+  const handleToggleMissedWholeDay = () => {
+    setMissedWholeDay((prev) => {
+      if (!prev) {
+        setSelectPrayType("");
+        setIsPrayerTypePickerVisible(false);
+      }
+      return !prev;
+    });
   };
 
   const getPrayerTypeLabel = (type: PrayerType | ""): string => {
@@ -480,6 +642,30 @@ export default function HomeTabScreen() {
 
             <View style={styles.modalBody}>
               <View style={styles.inputContainer}>
+                <TouchableOpacity
+                  style={styles.rangeToggleRow}
+                  onPress={handleToggleMissedWholeDay}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons
+                    name={missedWholeDay ? "checkbox" : "square-outline"}
+                    size={22}
+                    color={
+                      missedWholeDay ? colors.primary : colors.textSecondary
+                    }
+                  />
+                  <Text
+                    style={[
+                      styles.rangeToggleLabel,
+                      { color: colors.textPrimary },
+                    ]}
+                  >
+                    Hiç Kılmadım
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              <View style={styles.inputContainer}>
                 <Text
                   style={[styles.inputLabel, { color: colors.textPrimary }]}
                 >
@@ -492,22 +678,30 @@ export default function HomeTabScreen() {
                       backgroundColor: colors.inputBackground,
                       borderColor: colors.inputBorder,
                     },
+                    missedWholeDay && styles.selectDisabled,
                   ]}
-                  onPress={() =>
-                    setIsPrayerTypePickerVisible(!isPrayerTypePickerVisible)
-                  }
+                  onPress={() => {
+                    if (missedWholeDay) return;
+                    setIsPrayerTypePickerVisible(!isPrayerTypePickerVisible);
+                  }}
+                  disabled={missedWholeDay}
+                  activeOpacity={missedWholeDay ? 1 : 0.7}
                 >
                   <Text
                     style={[
                       styles.selectText,
                       {
-                        color: selectPrayType
+                        color: missedWholeDay
+                          ? colors.textSecondary
+                          : selectPrayType
                           ? colors.textPrimary
                           : colors.inputPlaceholder,
                       },
                     ]}
                   >
-                    {getPrayerTypeLabel(selectPrayType)}
+                    {missedWholeDay
+                      ? "Tüm vakitler seçili"
+                      : getPrayerTypeLabel(selectPrayType)}
                   </Text>
                   <Ionicons
                     name={
@@ -518,7 +712,7 @@ export default function HomeTabScreen() {
                     style={styles.selectIcon}
                   />
                 </TouchableOpacity>
-                {isPrayerTypePickerVisible && (
+                {!missedWholeDay && isPrayerTypePickerVisible && (
                   <View
                     style={[
                       styles.pickerDropdown,
@@ -575,73 +769,200 @@ export default function HomeTabScreen() {
               </View>
 
               <View style={styles.inputContainer}>
-                <Text
-                  style={[styles.inputLabel, { color: colors.textPrimary }]}
-                >
-                  Tarih
-                </Text>
                 <TouchableOpacity
-                  style={[
-                    styles.dateContainer,
-                    {
-                      backgroundColor: colors.inputBackground,
-                      borderColor: colors.inputBorder,
-                    },
-                  ]}
-                  onPress={() => setShowDatePicker(true)}
-                  activeOpacity={0.8}
+                  style={styles.rangeToggleRow}
+                  onPress={handleToggleRange}
+                  activeOpacity={0.7}
                 >
                   <Ionicons
-                    name="calendar-outline"
-                    size={20}
-                    color={colors.textSecondary}
-                    style={styles.dateIcon}
+                    name={isRangeEnabled ? "checkbox" : "square-outline"}
+                    size={22}
+                    color={
+                      isRangeEnabled ? colors.primary : colors.textSecondary
+                    }
                   />
                   <Text
                     style={[
-                      styles.dateDisplayText,
+                      styles.rangeToggleLabel,
                       { color: colors.textPrimary },
                     ]}
                   >
-                    {formatDateDisplay(selectedDate)}
+                    Aralık Gir
                   </Text>
-                  <Ionicons
-                    name="chevron-down"
-                    size={20}
-                    color={colors.textSecondary}
-                  />
                 </TouchableOpacity>
-                {showDatePicker && (
-                  <DateTimePicker
-                    value={selectedDate}
-                    mode="date"
-                    display={Platform.OS === "ios" ? "spinner" : "default"}
-                    onChange={handleDateChange}
-                    locale="tr-TR"
-                  />
-                )}
-                {Platform.OS === "ios" && showDatePicker && (
+              </View>
+
+              {!isRangeEnabled ? (
+                <View style={styles.inputContainer}>
+                  <Text
+                    style={[styles.inputLabel, { color: colors.textPrimary }]}
+                  >
+                    Tarih
+                  </Text>
                   <TouchableOpacity
                     style={[
-                      styles.datePickerDone,
-                      { backgroundColor: colors.primary },
+                      styles.dateContainer,
+                      {
+                        backgroundColor: colors.inputBackground,
+                        borderColor: colors.inputBorder,
+                      },
                     ]}
-                    onPress={() => setShowDatePicker(false)}
+                    onPress={() => setActiveDatePicker("single")}
+                    activeOpacity={0.8}
                   >
-                    <Text style={styles.datePickerDoneText}>Tamam</Text>
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color={colors.textSecondary}
+                      style={styles.dateIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.dateDisplayText,
+                        { color: colors.textPrimary },
+                      ]}
+                    >
+                      {formatDateDisplay(selectedDate)}
+                    </Text>
+                    <Ionicons
+                      name="chevron-down"
+                      size={20}
+                      color={colors.textSecondary}
+                    />
                   </TouchableOpacity>
-                )}
-              </View>
+                </View>
+              ) : (
+                <View style={styles.inputContainer}>
+                  <Text
+                    style={[styles.inputLabel, { color: colors.textPrimary }]}
+                  >
+                    Başlangıç tarihi
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.dateContainer,
+                      {
+                        backgroundColor: colors.inputBackground,
+                        borderColor: colors.inputBorder,
+                      },
+                    ]}
+                    onPress={() => setActiveDatePicker("start")}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color={colors.textSecondary}
+                      style={styles.dateIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.dateDisplayText,
+                        { color: colors.textPrimary },
+                      ]}
+                    >
+                      {formatDateDisplay(rangeStartDate)}
+                    </Text>
+                    <Ionicons
+                      name="chevron-down"
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+
+                  <Text
+                    style={[
+                      styles.inputLabel,
+                      styles.rangeSecondLabel,
+                      { color: colors.textPrimary },
+                    ]}
+                  >
+                    Bitiş tarihi
+                  </Text>
+                  <TouchableOpacity
+                    style={[
+                      styles.dateContainer,
+                      {
+                        backgroundColor: colors.inputBackground,
+                        borderColor: colors.inputBorder,
+                      },
+                    ]}
+                    onPress={() => setActiveDatePicker("end")}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="calendar-outline"
+                      size={20}
+                      color={colors.textSecondary}
+                      style={styles.dateIcon}
+                    />
+                    <Text
+                      style={[
+                        styles.dateDisplayText,
+                        { color: colors.textPrimary },
+                      ]}
+                    >
+                      {formatDateDisplay(rangeEndDate)}
+                    </Text>
+                    <Ionicons
+                      name="chevron-down"
+                      size={20}
+                      color={colors.textSecondary}
+                    />
+                  </TouchableOpacity>
+                  {rangeValidationMessage ? (
+                    <Text
+                      style={[styles.rangeErrorText, { color: colors.danger }]}
+                    >
+                      {rangeValidationMessage}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
+              {activeDatePicker !== null ? (
+                <DateTimePicker
+                  value={
+                    activeDatePicker === "single"
+                      ? selectedDate
+                      : activeDatePicker === "start"
+                      ? rangeStartDate
+                      : rangeEndDate
+                  }
+                  mode="date"
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                  onChange={handleDateChange}
+                  locale="tr-TR"
+                />
+              ) : null}
+              {Platform.OS === "ios" && activeDatePicker !== null ? (
+                <TouchableOpacity
+                  style={[
+                    styles.datePickerDone,
+                    { backgroundColor: colors.primary },
+                  ]}
+                  onPress={() => setActiveDatePicker(null)}
+                >
+                  <Text style={styles.datePickerDoneText}>Tamam</Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
 
             <TouchableOpacity
               style={[
                 styles.addButton,
                 { backgroundColor: colors.primary },
-                isSaving && styles.addButtonDisabled,
+                (isSaving ||
+                  (isRangeEnabled && rangeValidationMessage !== null) ||
+                  (!missedWholeDay && !selectPrayType)) &&
+                  styles.addButtonDisabled,
               ]}
               onPress={handleAddPrayer}
-              disabled={isSaving}
+              disabled={
+                isSaving ||
+                (isRangeEnabled && rangeValidationMessage !== null) ||
+                (!missedWholeDay && !selectPrayType)
+              }
             >
               <Text style={styles.addButtonText}>
                 {isSaving ? "Ekleniyor..." : "Ekle"}
@@ -867,6 +1188,24 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: 8,
   },
+  rangeToggleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+    paddingVertical: 4,
+  },
+  rangeToggleLabel: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  rangeSecondLabel: {
+    marginTop: 16,
+  },
+  rangeErrorText: {
+    fontSize: 13,
+    marginTop: 8,
+    fontWeight: "500",
+  },
   selectContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -874,6 +1213,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     borderWidth: 1,
+  },
+  selectDisabled: {
+    opacity: 0.55,
   },
   selectText: { flex: 1, fontSize: 16 },
   selectIcon: { marginLeft: 8 },

@@ -1,6 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -14,6 +15,10 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useCity } from "../../contexts/city-context";
 import { useTheme } from "../../contexts/theme-context";
+import {
+  getNotificationEnabled,
+  setNotificationEnabled,
+} from "../../services/notification.service";
 
 const TURKEY_CITIES = [
   "Adana",
@@ -103,6 +108,21 @@ export default function SettingsTabScreen() {
   const { colors, isDark, toggleTheme } = useTheme();
   const { cityName, setCityName } = useCity();
   const [isCityModalVisible, setIsCityModalVisible] = useState(false);
+  const [isNotificationEnabled, setIsNotificationEnabled] = useState(true);
+
+  useEffect(() => {
+    getNotificationEnabled().then(setIsNotificationEnabled);
+  }, []);
+
+  const handleToggleNotification = async (enabled: boolean) => {
+    setIsNotificationEnabled(enabled);
+    try {
+      await setNotificationEnabled(enabled);
+    } catch {
+      setIsNotificationEnabled(!enabled);
+      Alert.alert("Hata", "Bildirim ayarı değiştirilemedi.");
+    }
+  };
 
   const handleSelectCity = async (city: string) => {
     await setCityName(city);
@@ -180,6 +200,61 @@ export default function SettingsTabScreen() {
               <Switch
                 value={isDark}
                 onValueChange={toggleTheme}
+                trackColor={{ false: colors.border, true: colors.primary }}
+                thumbColor="#ffffff"
+                ios_backgroundColor={colors.border}
+              />
+            </View>
+          </View>
+        </View>
+
+        {/* Notification Section */}
+        <View style={styles.section}>
+          <Text style={[styles.sectionTitle, { color: colors.textSecondary }]}>
+            Bildirimler
+          </Text>
+          <View
+            style={[
+              styles.settingCard,
+              {
+                backgroundColor: colors.cardBackground,
+                borderColor: colors.cardBorder,
+              },
+            ]}
+          >
+            <View style={styles.settingRow}>
+              <View style={styles.settingInfo}>
+                <View
+                  style={[
+                    styles.settingIconWrap,
+                    { backgroundColor: colors.primaryLight },
+                  ]}
+                >
+                  <Ionicons
+                    name="notifications"
+                    size={20}
+                    color={colors.primary}
+                  />
+                </View>
+                <View style={styles.settingTextWrap}>
+                  <Text
+                    style={[styles.settingLabel, { color: colors.textPrimary }]}
+                  >
+                    Günlük Hatırlatma
+                  </Text>
+                  <Text
+                    style={[
+                      styles.settingDescription,
+                      { color: colors.textSecondary },
+                    ]}
+                  >
+                    Her gece 23:00'te hatırlatma
+                  </Text>
+                </View>
+              </View>
+              <Switch
+                value={isNotificationEnabled}
+                onValueChange={handleToggleNotification}
                 trackColor={{ false: colors.border, true: colors.primary }}
                 thumbColor="#ffffff"
                 ios_backgroundColor={colors.border}
